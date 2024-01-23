@@ -1,10 +1,10 @@
 import os
-import requests
-import zipfile
 import shutil
 import sys
-import stat
+import subprocess
+import requests
 from packaging import version
+from zipfile import ZipFile
 
 def get_latest_release_tag(github_repo):
     api_url = f"https://api.github.com/repos/{github_repo}/tags"
@@ -12,7 +12,6 @@ def get_latest_release_tag(github_repo):
     if response.status_code == 200:
         tags = response.json()
         if tags:
-            # Assuming the latest tag is the first one in the list
             latest_tag = tags[0]['name']
             return latest_tag
         else:
@@ -27,8 +26,9 @@ def get_version_from_file(file_path):
         with open(file_path, 'r') as file:
             content = file.readline().strip()
             version_number = content.split()[1]
-            return version.parse(version_number)
-    return version.parse("0.0.0")
+            return version_number
+    return "0.0.0"
+
 
 def download_and_extract_repo(github_repo, temp_dir, tag_name):
     repo_url = f'https://github.com/{github_repo}/archive/refs/tags/{tag_name}.zip'
@@ -41,7 +41,7 @@ def download_and_extract_repo(github_repo, temp_dir, tag_name):
     with open(zip_path, 'wb') as file:
         file.write(response.content)
 
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    with ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(temp_dir)
     os.remove(zip_path)
 
@@ -55,27 +55,25 @@ def update_spark_if_newer(spark_dir, temp_dir, github_repo):
         print("Unable to get the latest version tag.")
         return
 
-    extracted_path = download_and_extract_repo(github_repo, temp_dir, tag_name)
+    latest_version_tag = tag_name.lstrip('v')
+    local_version = get_version_from_file(os.path.join(spark_dir, 'version.txt'))
 
-    if version.parse(tag_name.lstrip('v')) > get_version_from_file(os.path.join(spark_dir, 'version.txt')):
-        print(f"Updating Spark to version {tag_name}.")
+    # Check if the local version is less than the latest version
+    if local_version < latest_version_tag:
+        print(f"Updating Spark from version {local_version} to {latest_version_tag}.")
+        extracted_path = download_and_extract_repo(github_repo, temp_dir, tag_name)
         if os.path.exists(spark_dir):
-            try:
-                shutil.rmtree(spark_dir)
-            except PermissionError as e:
-                print(f"Error: Unable to delete {spark_dir}. Ensure the directory is not open or in use.")
-                sys.exit(1)
+            shutil.rmtree(spark_dir)
         shutil.move(extracted_path, spark_dir)
-
-        # Update the version.txt file
-        version_file_path = os.path.join(spark_dir, 'version.txt')
-        with open(version_file_path, 'w') as file:
-            file.write(f"VERSION {tag_name.lstrip('v')}")
-
         print("Spark has been updated successfully.")
+
+        # Write the new version to the version.txt file
+        version_file_path = os.path.join(spark_dir, 'version.txt')
+        with open(version_file_path, 'w') as version_file:
+            version_file.write(f"VERSION {latest_version_tag}")
+        print(f"Updated version.txt to VERSION {latest_version_tag}.")
     else:
-        print(f"Local Spark is up to date with version {tag_name}.")
-        shutil.rmtree(extracted_path)
+        print(f"Local Spark is up to date with version {local_version}.")
 
 if __name__ == "__main__":
     spark_dir = 'C:/Spark'
