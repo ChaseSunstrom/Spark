@@ -267,8 +267,9 @@ if __name__ == "__main__":
     project_dir = sys.argv[3]
 
     # Check if the specified project directory exists, if not, create it
-    if not os.path.exists(project_dir):
-        os.makedirs(project_dir)
+    if not os.path.exists(project_dir + "/" + project_name):
+        os.makedirs(project_dir + "/" + project_name)
         create_project(project_name, project_type, project_dir)
+
     else:
-        print(f"Project directory '{project_dir}' already exists. Skipping project creation.")
+        print(f'Project already exists {project_dir + "/" + project_name}, skipping project creation.')
