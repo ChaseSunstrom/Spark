@@ -153,7 +153,7 @@ def create_project(project_name, project_type, project_dir):
 
     new_project_dir = os.path.join(project_dir, project_name)
     new_spark_dir = os.path.join(new_project_dir, "Spark")
-    src_dir = os.path.join(project_dir, "src")
+    src_dir = os.path.join(new_project_dir, "src")
 
     # Create the new project directory
     if not os.path.exists(new_project_dir):
@@ -173,7 +173,6 @@ def create_project(project_name, project_type, project_dir):
         print(f"Copied 'update_project.py' to {new_project_dir}")
     else:
         print("Warning: 'update_project.py' not found in the Spark directory.")
-
 
     # Create Premake file
     premake_content = f'''
