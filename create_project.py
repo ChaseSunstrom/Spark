@@ -3,6 +3,7 @@ import shutil
 import sys
 import subprocess
 import requests
+from packaging import version
 from zipfile import ZipFile
 
 def download_premake(destination_dir):
@@ -13,7 +14,7 @@ def download_premake(destination_dir):
     if response.status_code == 200:
         with open(zip_path, 'wb') as f:
             f.write(response.content)
-        
+
         # Unzip the downloaded file into a "premake" folder
         premake_dir = os.path.join(destination_dir, "premake")
         os.makedirs(premake_dir, exist_ok=True)
@@ -24,6 +25,7 @@ def download_premake(destination_dir):
     else:
         print("Failed to download Premake.")
         sys.exit(1)
+
 
 def run_premake(project_dir, project_type):
     premake_executable = "premake5.exe"
@@ -51,6 +53,7 @@ def run_premake(project_dir, project_type):
     except FileNotFoundError:
         print("Premake5 executable not found. Please ensure it is downloaded and located in the project directory.")
 
+
 def copy_glew_dll(spark_dir, project_dir):
     glew_dll_path = os.path.join(spark_dir, 'glew32.dll')
     if os.path.isfile(glew_dll_path):
@@ -63,29 +66,100 @@ def copy_glew_dll(spark_dir, project_dir):
     else:
         print("glew32.dll not found in the Spark directory.")
 
+def get_latest_release_tag(github_repo):
+    api_url = f"https://api.github.com/repos/{github_repo}/tags"
+    response = requests.get(api_url)
+    if response.status_code == 200:
+        tags = response.json()
+        if tags:
+            latest_tag = tags[0]['name']
+            return latest_tag
+        else:
+            print("No tags found in the repository.")
+            return None
+    else:
+        print(f"Failed to fetch tags. Status Code: {response.status_code}")
+        return None
+
+def get_version_from_file(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as file:
+            content = file.readline().strip()
+            version_number = content.split()[1]
+            return version.parse(version_number)
+    return version.parse("0.0.0")
+
+def download_and_extract_repo(github_repo, temp_dir, tag_name):
+    repo_url = f'https://github.com/{github_repo}/archive/refs/tags/{tag_name}.zip'
+    response = requests.get(repo_url)
+    if response.status_code != 200:
+        print(f"Failed to download the repository. Status Code: {response.status_code}")
+        sys.exit(1)
+
+    zip_path = os.path.join(temp_dir, 'download.zip')
+    with open(zip_path, 'wb') as file:
+        file.write(response.content)
+
+    with ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(temp_dir)
+    os.remove(zip_path)
+
+    extracted_dir_name = [name for name in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, name))][0]
+    extracted_path = os.path.join(temp_dir, extracted_dir_name)
+    return extracted_path
+
+def update_spark_if_newer(current_project_spark_dir, temp_dir, github_repo):
+    tag_name = get_latest_release_tag(github_repo)
+    if not tag_name:
+        print("Unable to get the latest version tag.")
+        return
+
+    latest_version = version.parse(tag_name.lstrip('v'))
+    local_version = get_version_from_file(os.path.join(current_project_spark_dir, 'version.txt'))
+
+    print(f"Updating local Spark from version {local_version} to {latest_version}.")
+    extracted_path = download_and_extract_repo(github_repo, temp_dir, tag_name)
+
+        # Update the Spark folder in the current project
+    if os.path.exists(current_project_spark_dir):
+        shutil.rmtree(current_project_spark_dir)
+    shutil.move(extracted_path, current_project_spark_dir)
+    print("Local Spark has been updated successfully.")
+
 def create_project(project_name, project_type, project_dir):
     default_spark_dir = "C:/Spark"
+    temp_dir = 'C:/SparkDownloadTemp'
+    github_repo = 'ChaseSunstrom/Spark'
 
-    # Check if the default Spark directory exists
-    if not os.path.exists(default_spark_dir):
-        # Prompt the user for the actual Spark directory path
-        actual_spark_dir = input("Enter the path to the Spark directory: ").strip()
-        if not os.path.exists(actual_spark_dir):
-            print(f"Error: The path '{actual_spark_dir}' does not exist.")
-            sys.exit(1)
-        # Copy the Spark directory to the default location
-        shutil.copytree(actual_spark_dir, default_spark_dir)
-        print(f"Copied Spark directory to {default_spark_dir}")
-    
+    # Check and update Spark if necessary
+    os.makedirs(temp_dir, exist_ok=True)
+    tag_name = get_latest_release_tag(github_repo)
+    if tag_name:
+        latest_version = version.parse(tag_name.lstrip('v'))
+        local_version = get_version_from_file(os.path.join(default_spark_dir, 'version.txt'))
+
+        if latest_version > local_version:
+            print(f"Updating Spark from version {local_version} to {latest_version}.")
+            extracted_path = download_and_extract_repo(github_repo, temp_dir, tag_name)
+            if os.path.exists(default_spark_dir):
+                shutil.rmtree(default_spark_dir)
+            shutil.move(extracted_path, default_spark_dir)
+            print("Spark has been updated successfully.")
+        else:
+            print(f"Local Spark is up to date with version {local_version}.")
+
+    if os.path.exists(temp_dir) and not os.listdir(temp_dir):
+        os.rmdir(temp_dir)
+
     new_project_dir = os.path.join(project_dir, project_name)
     new_spark_dir = os.path.join(new_project_dir, "Spark")
-    src_dir = os.path.join(new_project_dir, "src")
+    src_dir = os.path.join(project_dir, "src")
 
     # Create the new project directory
     if not os.path.exists(new_project_dir):
         os.makedirs(new_project_dir)
 
-    # Copy Spark directory into new project directory
+    # Copy the updated Spark directory into the new project directory
     shutil.copytree(default_spark_dir, new_spark_dir)
 
     # Create Premake file
